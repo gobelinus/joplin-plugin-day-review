@@ -8,7 +8,8 @@ joplin.plugins.register({
 			label: 'Makes a review of the note edited today',
 			iconName: 'fas fa-clipboard-list',
 			execute: async () => {
-				const notes = (await joplin.data.get(['notes'], { fields: ['id', 'title', 'created_time', 'updated_time', 'is_todo', 'todo_completed' ] }));
+				const notes = (await joplin.data.get(['notes'], { fields: ['id', 'title', 'created_time', 'updated_time', 'is_todo', 'todo_completed' ],
+			order_by:'updated_time', order_dir:'DESC' }));
 				var createdNotes_titles = [];
 				var createdNotes_ids = [];
 				var updatedNotes_titles = [];
@@ -17,11 +18,13 @@ joplin.plugins.register({
 				var createdTodos_ids = [];
 				var completedTodos_titles = [];
 				var completedTodos_ids = [];
-				var date = new Date();
-				date.setHours(0, 0, 0);
+				var date1 = new Date();
+				date1.setHours(0, 0, 0);
 				//const title = date.toString() + " Review";
 				var body = "(Generated automatically)\n\n";
 
+				console.log("notes ", notes, date1, date1.getTime());
+				var date = date1.getTime();
 				for (let i in notes.items){
 					if (notes.items[i].created_time >= date){
 						if (notes.items[i].is_todo){
@@ -36,11 +39,12 @@ joplin.plugins.register({
 					// "else if" so we don't put the created notes also in the "updated" section
 					else if (notes.items[i].updated_time >= date && !notes.items[i].is_todo){
 						updatedNotes_titles.push(notes.items[i].title);
-						updatedNotes_ids.push(notes.items[i].ids);
+						updatedNotes_ids.push(notes.items[i].ids || notes.items[i].id);
 					}
+					// console.log("compare date ", notes.items[i].updated_time, date);
 					if (notes.items[i].is_todo && notes.items[i].todo_completed >= date){
 						completedTodos_titles.push(notes.items[i].title);
-						completedTodos_ids.push(notes.items[i].ids);
+						completedTodos_ids.push(notes.items[i].ids || notes.items[i].id);
 					}
 
 
@@ -50,27 +54,27 @@ joplin.plugins.register({
 				//
 				body += "# Created Notes\n";
 				for (let i in createdNotes_ids){
-					body += "* [" + createdNotes_titles[i] + "](" + createdNotes_ids[i] + ")\n";
+					body += "* [" + createdNotes_titles[i] + "](:/" + createdNotes_ids[i] + ")\n";
 				}
 
 				body += "# Updated Notes\n";
 				for (let i in updatedNotes_ids){
-					body += "* [" + updatedNotes_titles[i] + "](" + updatedNotes_ids[i] + ")\n";
+					body += "* [" + updatedNotes_titles[i] + "](:/" + updatedNotes_ids[i] + ")\n";
 				}
 
 				body += "# Created Todos\n";
 				for (let i in createdTodos_ids){
-					body += "* [" + createdTodos_titles[i] + "](" + createdTodos_ids[i] + ")\n";
+					body += "* [" + createdTodos_titles[i] + "](:/" + createdTodos_ids[i] + ")\n";
 				}
 
 				body += "# Completed Todos\n";
 				for (let i in completedTodos_ids){
-					body += "* [" + completedTodos_titles[i] + "](" + completedTodos_ids[i] + ")\n";
+					body += "* [" + completedTodos_titles[i] + "](:/" + completedTodos_ids[i] + ")\n";
 				}
 
 				console.info(body);
-				date.setHours(12, 0, 0);
-				const title = date.toISOString().substring(0, 10) + " Review";
+				date1.setHours(12, 0, 0);
+				const title = date1.toISOString().substring(0, 10) + " Review";
 				await joplin.data.post(['notes'], null, { body: body, title: title});
 
 			},
