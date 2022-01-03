@@ -2,7 +2,7 @@
 	"manifest_version": 1,
 	"id": "com.s73ph4n.day_review",
 	"app_min_version": "2.0",
-	"version": "1.0.0",
+	"version": "1.0.2-rc1",
 	"name": "Day Review",
 	"description": "This plugin adds an icon to the toolbar. When clicked, it makes a review of the day&#39;s created/updated/completed notes and todos.",
 	"author": "S73ph4n",

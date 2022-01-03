@@ -1,4 +1,4 @@
-VERSION := $(shell jq --raw-output '.version' < src/manifest.json)
+# VERSION := $(shell jq --raw-output '.version' < src/manifest.json)
 # TODO: make this idempotent and cached
 build:
 	npm run dist
@@ -10,7 +10,7 @@ start: build
 	@/Applications/Joplin.app/Contents/MacOS/Joplin --env dev
 
 tag:
-	git tag -a v$(VERSION) -m "Release $(VERSION)"
+	@./bin/tag-release
 
 clean:
 	@rm -rf ./publish && rm -rf ./dist

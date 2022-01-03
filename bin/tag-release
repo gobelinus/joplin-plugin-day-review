@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -eou pipefail
+
+set -x
+
+$EDITOR src/manifest.json && \
+VERSION="$(jq --raw-output '.version' < src/manifest.json)"
+
+git add src/manifest.json
+git commit -m "[AUTO-COMMIT] for tagged release"
+
+git tag -a "v${VERSION}" -m "Release ${VERSION}"
+git push
