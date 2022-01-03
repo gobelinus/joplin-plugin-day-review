@@ -11,4 +11,4 @@ git add src/manifest.json
 git commit -m "[AUTO-COMMIT] for tagged release"
 
 git tag -a "v${VERSION}" -m "Release ${VERSION}"
-git push
+git push origin/master && git push --tags
