@@ -1,123 +1,143 @@
 import joplin from 'api';
+import * as crypto from 'crypto';
 import { ToolbarButtonLocation } from 'api/types';
 import _ = require('lodash');
+
+const CREATED_NOTES = 'CREATED_NOTES'
+const UPDATED_NOTES = 'UPDATED_NOTES'
+const CREATED_TODOS = 'CREATED_TODOS'
+const COMPLETED_TODOS = 'COMPLETED_TODOS'
+const DAILY_REVIEW = 'DAILY_REVIEW'
 
 const getId = (item: any) => {
   return item.ids || item.id
 }
 
-/*
-  * TODO: convert from arrays to object id based lookup
-  * TODO: use lodash templating
-  * TODO: intentionally choose which notebook it goes in
-  * TODO: handle large note lists with pagination?
-  * TODO: allow different review intervals, daily, weekly, monthly, yearly
-  * TODO: automatically create these notes
-  * TODO: make note creation idempotent and upsert oriented vs duplicative
-*/
-joplin.plugins.register({
-  onStart: async function () {
-    joplin.commands.register({
-      name: 'dayReview',
-      label: 'Makes a review of the note edited today',
-      iconName: 'fas fa-clipboard-list',
-      execute: async () => {
-        // TODO: convert this to only getting X new notes. We probably need to paginate until we're past the updated ones?
-        // Or can we be lazy and enumerate all notes?
-        // TODO: paginate on has_more
-        /*
-        {
-            "items": [
-              {
-                  "id": "4d0026f8e9b8483f998f40a5f8935029",
-                  "title": "4. Tips on Friday",
-                  "created_time": 1640675919427,
-                  "updated_time": 1640742947105,
-                  "is_todo": 0,
-                  "todo_completed": 0
-              },
-              {
-                  "id": "bb32e04fd4794e43901154b58e9df1d1",
-                  "title": "2. Importing due at 8pm Monday",
-                  "created_time": 1640675919442,
-                  "updated_time": 1640716377997,
-                  "is_todo": 0,
-                  "todo_completed": 0
-              }
-          ],
-          "has_more": false
-        }
-        */
-        const options = {
-          fields: ['id', 'title', 'created_time', 'updated_time', 'is_todo', 'todo_completed'],
-          order_by: 'updated_time', order_dir: 'DESC'
-        }
-        const notes = await joplin.data.get(['notes'], options);
-        console.info("Notes: ", notes)
+const DEFAULT_FIELDS = ['id', 'title', 'created_time', 'updated_time', 'is_todo', 'todo_completed']
+const DEFAULT_OPTIONS = {
+  fields: DEFAULT_FIELDS,
+  order_by: 'updated_time', order_dir: 'DESC'
+}
 
-        const items = notes.items.reduce((acc, i) => { acc[getId(i)] = i; return acc }, {})
-        console.info("items: ", items)
+const getNotes = async () => {
+  const items = await getAllData(['notes'], DEFAULT_OPTIONS)
+  console.debug("Notes: ", items)
 
-        const CREATED_NOTES = 'CREATED_NOTES'
-        const UPDATED_NOTES = 'UPDATED_NOTES'
-        const CREATED_TODOS = 'CREATED_TODOS'
-        const COMPLETED_TODOS = 'COMPLETED_TODOS'
-        var categorizedNotes = {}
-        categorizedNotes[CREATED_NOTES] = []
-        categorizedNotes[UPDATED_NOTES] = []
-        categorizedNotes[CREATED_TODOS] = []
-        categorizedNotes[COMPLETED_TODOS] = []
+  return convertItemsToMap(items)
+}
 
-        var date1 = new Date();
-        date1.setHours(0, 0, 0);
-        var date = date1.getTime();
+const convertItemsToMap = (items) => items.reduce((acc, i) => { acc[getId(i)] = i; return acc }, {})
 
-        console.log("notes ", notes, date1, date1.getTime());
+const getNotesWithSearch = async (searchOptions) => {
+  //{ query: hash, type: "note", fields: ['id', 'title', 'body'], page: 1 }
+  // TODO: paginate
+  const result = await getAllData(['search'], {...DEFAULT_OPTIONS, ...searchOptions});
+  return convertItemsToMap(result)
+}
 
-        _.each(items, (item, id) => {
-          console.info("forEach: item: ", item, id)
-          if (item.created_time >= date) {
-            if (item.is_todo) {
-              categorizedNotes[CREATED_TODOS].push(item.id)
-            } else {
-              categorizedNotes[CREATED_NOTES].push(item.id)
-            }
-          } else if (item.updated_time >= date && !item.is_todo) {
-            // "else if" so we don't put the created notes also in the "updated" section
-            categorizedNotes[UPDATED_NOTES].push(getId(item))
-          }
-          if (item.is_todo && item.todo_completed >= date) {
-            categorizedNotes[COMPLETED_TODOS].push(getId(item))
-          }
-        });
+const getAllData = async (arg1, options) => {
+  let notes = []
+  let has_more = true
+  let page = 0
+  while (has_more) {
+    page += 1
+    const result = await joplin.data.get(arg1, {...options, ...{page}});
+    console.info("getAllData", result)
+    has_more = result.has_more
+    let items = result.items
+    notes = [...notes, ...items]
+  }
+  return notes
+}
 
-        var body = "(Generated automatically)\n\n";
-        // TODO : make links using lodash template
-        body += createLinksSection("Created Notes", categorizedNotes[CREATED_NOTES], items)
-        body += createLinksSection("Updated Notes", categorizedNotes[UPDATED_NOTES], items)
-        body += createLinksSection("Created Todos", categorizedNotes[CREATED_TODOS], items)
-        body += createLinksSection("Completed Todos", categorizedNotes[COMPLETED_TODOS], items)
+const categorizeNotes = (items, date) => {
+  // DATE START
+  // TODO: search and filter by "DATE END" also, ie 23:59:59
+  date.setHours(0, 0, 0);
+  var dateMs = date.getTime();
+  var categorizedNotes = {}
+  // https://joplinapp.org/help/#searching
+  categorizedNotes[CREATED_NOTES] = []
+  categorizedNotes[UPDATED_NOTES] = []
+  categorizedNotes[CREATED_TODOS] = []
+  categorizedNotes[COMPLETED_TODOS] = []
 
-        console.info(body);
-        date1.setHours(12, 0, 0);
-        const title = date1.toISOString().substring(0, 10) + " Review";
-        await joplin.data.post(['notes'], null, { body: body, title: title });
-      },
-    });
+  // TODO: refactor to be more explicit OR convert to multiple exact queries? one for each type using search syntax
+  _.each(items, (item, id) => {
+    console.debug("forEach: item: ", item, id)
+    if (item.created_time >= dateMs) {
+      if (item.is_todo) {
+        categorizedNotes[CREATED_TODOS].push(item.id)
+      } else {
+        categorizedNotes[CREATED_NOTES].push(item.id)
+      }
+    } else if (item.updated_time >= dateMs && !item.is_todo) {
+      // "else if" so we don't put the created notes also in the "updated" section
+      categorizedNotes[UPDATED_NOTES].push(getId(item))
+    }
+    if (item.is_todo && item.todo_completed >= dateMs) {
+      categorizedNotes[COMPLETED_TODOS].push(getId(item))
+    }
+  });
 
-    joplin.views.toolbarButtons.create('dayReview', 'dayReview', ToolbarButtonLocation.EditorToolbar);
-  },
-});
+  return categorizedNotes
+}
+const generateHash = (date, type) => {
+  date.setHours(12, 0, 0);
+  const dateStamp = date.toISOString().substring(0, 10)
+  const toHash = `${dateStamp}:${type}`
+  const hash = crypto.createHash('md5').update(toHash).digest('hex');
+  return {dateStamp, hash}
+}
+
+const SPACER = "\n\n"
+const CODE_BACKTICKS = "```"
+const buildReviewNote = (categorizedNotes, items, hash, type) => {
+  var body = _.flattenDeep(["(Auto Generated by Day Review Plugin)\n",
+    createLinksSection("Created Notes", categorizedNotes[CREATED_NOTES], items),
+    SPACER,
+    createLinksSection("Updated Notes", categorizedNotes[UPDATED_NOTES], items),
+    SPACER,
+    createLinksSection("Created Todos", categorizedNotes[CREATED_TODOS], items),
+    SPACER,
+    createLinksSection("Completed Todos", categorizedNotes[COMPLETED_TODOS], items),
+    SPACER,
+    SPACER,
+    SPACER,
+    `${CODE_BACKTICKS}\n${JSON.stringify({ reviewMetadata: true, reviewId: hash, reviewType: type })}\n${CODE_BACKTICKS}`,
+  ])
+  console.debug("unjoined body", body)
+  return body
+}
+
+const upsertReviewNote = async (hash: string, body: string, title: string) => {
+  console.info("body: ", body);
+  console.info("trying to get maybeNote: ", hash)
+  const itemsSearch = await joplin.data.get(['search'], { query: hash, type: "note", fields: ['id', 'title', 'body'], page: 1 });
+  const maybeNote = itemsSearch.items
+  console.info("maybeNote: ", maybeNote)
+  const content = { body, title }
+  // TODO: make this land in the correct notebook, maybe based on Settings?
+  if(maybeNote && maybeNote.length === 1) {
+    const reviewId = maybeNote[0].id
+    await joplin.data.put(['notes', reviewId], null, content);
+  } else {
+    await joplin.data.post(['notes'], null, content);
+  }
+
+}
 
 const createLinkForItem = (item: any) => {
   console.info("createLinkForItem item: ", item)
-  const link = "* [" + item.title + "](:/" + item.id + ")\n";
+  const link = `* [${item.title}](:/${item.id})`;
   return link;
 }
 
 // TODO: fix types
-const createLinksSection = (title: string, ids: any, items: any) => {
-  let output = `# ${title}\n`;
+const createLinksSection = (title: string, ids: any, items: any): string[] => {
+  let output = []
+  output.push(`# ${title}\n`)
+
   console.info("createLinksSection ids: ", ids)
 
   _.each(ids, (id) => {
@@ -127,7 +147,37 @@ const createLinksSection = (title: string, ids: any, items: any) => {
       console.error("unable to find item by id: ", id)
       throw Error("broken id lookup");
     }
-    output += createLinkForItem(item);
+    output.push(createLinkForItem(item))
   })
   return output;
 }
+
+
+/*
+  * TODO: intentionally choose which notebook it goes in
+  * TODO: handle large note lists with pagination?
+  * TODO: allow different review intervals, daily, weekly, monthly, yearly
+  * TODO: automatically create these notes
+*/
+joplin.plugins.register({
+  onStart: async function () {
+    joplin.commands.register({
+      name: 'dayReview',
+      label: 'Makes a review of the notes edited today',
+      iconName: 'fas fa-clipboard-list',
+      execute: async () => {
+        const REVIEW_TYPE = DAILY_REVIEW;
+        var date = new Date();
+
+        const items = await getNotes()
+        const categorizedNotes = categorizeNotes(items, date)
+        const {dateStamp, hash} = generateHash(date, REVIEW_TYPE)
+        const body = buildReviewNote(categorizedNotes, items, hash, REVIEW_TYPE)
+        const title = `${dateStamp} ${_.chain(REVIEW_TYPE).lowerCase().startCase()}`;
+        upsertReviewNote(hash, _.join(body, "\n"), title)
+      },
+    });
+
+    joplin.views.toolbarButtons.create('dayReview', 'dayReview', ToolbarButtonLocation.EditorToolbar);
+  },
+});
