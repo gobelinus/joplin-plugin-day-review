@@ -222,9 +222,7 @@ const createLinksSection = (title: string, items: any): string[] => {
 
 /*
   * TODO: intentionally choose which notebook it goes in
-  * TODO: handle large note lists with pagination?
-  * TODO: allow different review intervals, daily, weekly, monthly, yearly
-  * TODO: automatically create these notes
+  * TODO: automatically create these notes in correct notebook, separate notebook for automated notes
 */
 joplin.plugins.register({
   onStart: async function () {
