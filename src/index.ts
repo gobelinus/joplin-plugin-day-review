@@ -2,15 +2,75 @@ import joplin from 'api';
 import * as crypto from 'crypto';
 import { ToolbarButtonLocation } from 'api/types';
 import _ = require('lodash');
+import { format, subDays, addMonths, subMonths, subYears, subWeeks, addYears, addDays } from 'date-fns'
 
 const CREATED_NOTES = 'CREATED_NOTES'
 const UPDATED_NOTES = 'UPDATED_NOTES'
 const CREATED_TODOS = 'CREATED_TODOS'
 const COMPLETED_TODOS = 'COMPLETED_TODOS'
-const DAILY_REVIEW = 'DAILY_REVIEW'
 
-const getId = (item: any) => {
-  return item.ids || item.id
+const DAILY_REVIEW = 'DAILY_REVIEW'
+const PRIOR_DAILY_REVIEW = 'PRIOR_DAILY_REVIEW'
+const WEEKLY_REVIEW = 'WEEKLY_REVIEW'
+const PRIOR_WEEKLY_REVIEW = 'PRIOR_WEEKLY_REVIEW'
+const MONTHLY_REVIEW = 'MONTHLY_REVIEW'
+const PRIOR_MONTHLY_REVIEW = 'PRIOR_MONTHLY_REVIEW'
+const YEARLY_REVIEW = 'YEARLY_REVIEW'
+const PRIOR_YEARLY_REVIEW = 'PRIOR_YEARLY_REVIEW'
+
+// TODO: make these dateFn have a matching upper bound since queries are "since..."
+// readableDateFn is the human readable form
+const reviewTypes = {
+  [DAILY_REVIEW]: {
+    unit: "day-0",
+    readableDateFn: () => format(new Date(), 'yyyy-MM-dd'),
+    dateFn: () => format(new Date(), 'yyyyMMdd'),
+    upperDateFn: () => format(addDays(new Date(), 1), 'yyyyMMdd')
+  },
+  [PRIOR_DAILY_REVIEW]: {
+    unit: "day-1",
+    readableDateFn: () => format(subDays(new Date(), 1), 'yyyy-MM-dd'),
+    dateFn: () => format(subDays(new Date(), 1), 'yyyyMMdd'),
+    upperDateFn: () => format(new Date(), 'yyyyMMdd')
+  },
+  [WEEKLY_REVIEW]: {
+    // TODO: weeklies are probably broken right now, need to round to Sun/Mon
+    unit: "days-7",
+    readableDateFn: () => format(new Date(), 'yyyy Week #ww'),
+    dateFn: () => format(subDays(new Date(), 7), 'yyyyMMdd'),
+    upperDateFn: () => format(subDays(new Date(), 0), 'yyyyMMdd'),
+  },
+  [PRIOR_WEEKLY_REVIEW]: {
+    // TODO: weeklies are probably broken right now, need to round to Sun/Mon
+    unit: "days-14",
+    readableDateFn: () => format(subWeeks(new Date(), 1), 'yyyy Week #ww'),
+    dateFn: () => format(subDays(new Date(), 14), 'yyyyMMdd'),
+    upperDateFn: () => format(subDays(new Date(), 7), 'yyyyMMdd'),
+  },
+  [MONTHLY_REVIEW]: {
+    unit: "month-0",
+    readableDateFn: () => format(new Date(), 'yyyy-MM'),
+    dateFn: () => format(new Date(), 'yyyyMM'),
+    upperDateFn: () => format(addMonths(new Date(), 1), 'yyyyMM')
+  },
+  [PRIOR_MONTHLY_REVIEW]: {
+    unit: "month-1",
+    readableDateFn: () => format(subMonths(new Date(), 1), 'yyyy-MM'),
+    dateFn: () => format(subMonths(new Date(), 1), 'yyyyMM'),
+    upperDateFn: () => format(new Date(), 'yyyyMM')
+  },
+  [YEARLY_REVIEW]: {
+    unit: "year-0",
+    readableDateFn: () => format(new Date(), 'yyyy'),
+    dateFn: () => format(new Date(), 'yyyy'),
+    upperDateFn: () => format(addYears(new Date(), 1), 'yyyy')
+  },
+  [PRIOR_YEARLY_REVIEW]: {
+    unit: "year-1",
+    readableDateFn: () => format(subYears(new Date(), 1), 'yyyy'),
+    dateFn: () => format(subYears(new Date(), 1), 'yyyy'),
+    upperDateFn: () => format(new Date(), 'yyyy')
+  },
 }
 
 const DEFAULT_FIELDS = ['id', 'title', 'created_time', 'updated_time', 'is_todo', 'todo_completed']
@@ -19,19 +79,38 @@ const DEFAULT_OPTIONS = {
   order_by: 'updated_time', order_dir: 'DESC'
 }
 
+const getId = (item: any) => {
+  return item.ids || item.id
+}
+
+const baseReview = async (type) => {
+  var date = new Date();
+
+  //const items = await getNotes()
+  const categorizedNotes = await categorizeNotes(date, type)
+  const { dateStamp, hash } = generateHash(date, type)
+  const body = buildReviewNote(categorizedNotes, hash, type)
+  // TODO: make this adjust to different types of REVIEW_TYPES, ie 2022 for year, 2021-01 for monthly etc
+  const {readableDateFn} = reviewTypes[type]
+  const title = `${readableDateFn()} ${_.chain(type).replace('PRIOR_', '').lowerCase().startCase()}`;
+  upsertReviewNote(hash, _.join(body, "\n"), title)
+}
+
 const getNotes = async () => {
   const items = await getAllData(['notes'], DEFAULT_OPTIONS)
   console.debug("Notes: ", items)
-
   return convertItemsToMap(items)
 }
 
 const convertItemsToMap = (items) => items.reduce((acc, i) => { acc[getId(i)] = i; return acc }, {})
 
 const getNotesWithSearch = async (searchOptions) => {
-  //{ query: hash, type: "note", fields: ['id', 'title', 'body'], page: 1 }
+  //{ query: hash, type: "note"}
   // TODO: paginate
-  const result = await getAllData(['search'], {...DEFAULT_OPTIONS, ...searchOptions});
+  const args = {...DEFAULT_OPTIONS, ...searchOptions}
+  console.info("getNotesWithSearch", args)
+  const result = await getAllData(['search'], args);
+  console.info("getNotesWithSearch result:", result)
   return convertItemsToMap(result)
 }
 
@@ -50,36 +129,25 @@ const getAllData = async (arg1, options) => {
   return notes
 }
 
-const categorizeNotes = (items, date) => {
-  // DATE START
-  // TODO: search and filter by "DATE END" also, ie 23:59:59
-  date.setHours(0, 0, 0);
-  var dateMs = date.getTime();
+// TODO: convert this to allow for creating prior month or future month or prior year
+const categorizeNotes = async (_date, reviewType) => {
+  // NOTE: type:todo appears to be invalid and not a proper `type` so working around it via type:note + istodo
   var categorizedNotes = {}
   // https://joplinapp.org/help/#searching
-  categorizedNotes[CREATED_NOTES] = []
-  categorizedNotes[UPDATED_NOTES] = []
-  categorizedNotes[CREATED_TODOS] = []
-  categorizedNotes[COMPLETED_TODOS] = []
+  // Must be string format of k:v formatting
+  // TODO: fix this horrible hack that ensures upper bound
+  const {dateFn, upperDateFn} = reviewTypes[reviewType]
+  const created = [`created:${dateFn()} -created:${upperDateFn()}`]
+  const updated = [`updated:${dateFn()} -updated:${upperDateFn()}`]
+  // Use iscompleted and updated as a proxy for what we really want to query which is "todo_completed"
+  const completed = ["iscompleted:1"]
+  const anyType = ["any:0"]
+  categorizedNotes[CREATED_NOTES] = await getNotesWithSearch({query: ["type:note", ...anyType, ...created].join(" ")})
+  categorizedNotes[CREATED_TODOS] = await getNotesWithSearch({query: ["type:todo", ...anyType, ...created].join(" ")})
+  categorizedNotes[UPDATED_NOTES] = await getNotesWithSearch({query: ["type:note", ...anyType, ...updated].join(" ")})
+  categorizedNotes[COMPLETED_TODOS] = await getNotesWithSearch({query: ["type:todo", ...anyType, ...completed, ...updated].join(" ")})
 
-  // TODO: refactor to be more explicit OR convert to multiple exact queries? one for each type using search syntax
-  _.each(items, (item, id) => {
-    console.debug("forEach: item: ", item, id)
-    if (item.created_time >= dateMs) {
-      if (item.is_todo) {
-        categorizedNotes[CREATED_TODOS].push(item.id)
-      } else {
-        categorizedNotes[CREATED_NOTES].push(item.id)
-      }
-    } else if (item.updated_time >= dateMs && !item.is_todo) {
-      // "else if" so we don't put the created notes also in the "updated" section
-      categorizedNotes[UPDATED_NOTES].push(getId(item))
-    }
-    if (item.is_todo && item.todo_completed >= dateMs) {
-      categorizedNotes[COMPLETED_TODOS].push(getId(item))
-    }
-  });
-
+  console.info("categorizeNotes", categorizedNotes)
   return categorizedNotes
 }
 const generateHash = (date, type) => {
@@ -92,15 +160,16 @@ const generateHash = (date, type) => {
 
 const SPACER = "\n\n"
 const CODE_BACKTICKS = "```"
-const buildReviewNote = (categorizedNotes, items, hash, type) => {
+const buildReviewNote = (categorizedNotes, hash, type) => {
+  console.info("buildReviewNote: start", categorizedNotes)
   var body = _.flattenDeep(["(Auto Generated by Day Review Plugin)\n",
-    createLinksSection("Created Notes", categorizedNotes[CREATED_NOTES], items),
+    createLinksSection("Created Notes", categorizedNotes[CREATED_NOTES]),
     SPACER,
-    createLinksSection("Updated Notes", categorizedNotes[UPDATED_NOTES], items),
+    createLinksSection("Updated Notes", categorizedNotes[UPDATED_NOTES]),
     SPACER,
-    createLinksSection("Created Todos", categorizedNotes[CREATED_TODOS], items),
+    createLinksSection("Created Todos", categorizedNotes[CREATED_TODOS]),
     SPACER,
-    createLinksSection("Completed Todos", categorizedNotes[COMPLETED_TODOS], items),
+    createLinksSection("Completed Todos", categorizedNotes[COMPLETED_TODOS]),
     SPACER,
     SPACER,
     SPACER,
@@ -134,17 +203,15 @@ const createLinkForItem = (item: any) => {
 }
 
 // TODO: fix types
-const createLinksSection = (title: string, ids: any, items: any): string[] => {
+const createLinksSection = (title: string, items: any): string[] => {
   let output = []
   output.push(`# ${title}\n`)
 
-  console.info("createLinksSection ids: ", ids)
-
-  _.each(ids, (id) => {
-    console.info("createLinksSection id: ", id)
-    let item = items[id];
+  _.each(items, (v, k) => {
+    console.info("createLinksSection id: ", k)
+    let item = v
     if (!item) {
-      console.error("unable to find item by id: ", id)
+      console.error("unable to find item by id: ", k)
       throw Error("broken id lookup");
     }
     output.push(createLinkForItem(item))
@@ -161,23 +228,34 @@ const createLinksSection = (title: string, ids: any, items: any): string[] => {
 */
 joplin.plugins.register({
   onStart: async function () {
+    _.each(reviewTypes, (_v, k) => {
+      registerReview(k)
+    })
+
+    const all = 'allReviews'
     joplin.commands.register({
-      name: 'dayReview',
-      label: 'Makes a review of the notes edited today',
+      name: all,
+      label: `Runs all review generations`,
       iconName: 'fas fa-clipboard-list',
       execute: async () => {
-        const REVIEW_TYPE = DAILY_REVIEW;
-        var date = new Date();
-
-        const items = await getNotes()
-        const categorizedNotes = categorizeNotes(items, date)
-        const {dateStamp, hash} = generateHash(date, REVIEW_TYPE)
-        const body = buildReviewNote(categorizedNotes, items, hash, REVIEW_TYPE)
-        const title = `${dateStamp} ${_.chain(REVIEW_TYPE).lowerCase().startCase()}`;
-        upsertReviewNote(hash, _.join(body, "\n"), title)
-      },
+        _.each(reviewTypes, (_v, k) => {
+          baseReview(k)
+        })
+      }
     });
 
-    joplin.views.toolbarButtons.create('dayReview', 'dayReview', ToolbarButtonLocation.EditorToolbar);
+    joplin.views.toolbarButtons.create(all, all, ToolbarButtonLocation.EditorToolbar);
   },
 });
+
+const registerReview = (type) => {
+  const name = _.camelCase(type)
+  joplin.commands.register({
+    name: name,
+    label: `Creates a ${_.chain(type).lowerCase().startCase()} of the notes edited`,
+    iconName: 'fas fa-clipboard-list',
+    execute: async () => baseReview(type),
+  });
+
+  joplin.views.toolbarButtons.create(name, name, ToolbarButtonLocation.EditorToolbar);
+}
