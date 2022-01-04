@@ -36,14 +36,14 @@ const reviewTypes = {
   [WEEKLY_REVIEW]: {
     // TODO: weeklies are probably broken right now, need to round to Sun/Mon
     unit: "days-7",
-    readableDateFn: () => format(new Date(), 'yyyy Week #ww'),
+    readableDateFn: () => format(new Date(), "yyyy '#'ww"),
     dateFn: () => format(subDays(new Date(), 7), 'yyyyMMdd'),
     upperDateFn: () => format(subDays(new Date(), 0), 'yyyyMMdd'),
   },
   [PRIOR_WEEKLY_REVIEW]: {
     // TODO: weeklies are probably broken right now, need to round to Sun/Mon
     unit: "days-14",
-    readableDateFn: () => format(subWeeks(new Date(), 1), 'yyyy Week #ww'),
+    readableDateFn: () => format(subWeeks(new Date(), 1), "yyyy '#'ww"),
     dateFn: () => format(subDays(new Date(), 14), 'yyyyMMdd'),
     upperDateFn: () => format(subDays(new Date(), 7), 'yyyyMMdd'),
   },
@@ -237,16 +237,23 @@ joplin.plugins.register({
       name: all,
       label: `Runs all review generations`,
       iconName: 'fas fa-clipboard-list',
-      execute: async () => {
-        _.each(reviewTypes, (_v, k) => {
-          baseReview(k)
-        })
-      }
+      execute: allReviews,
+    });
+
+    joplin.workspace.onNoteChange(async (event: any) => {
+      await debouncedAllReviews()
     });
 
     joplin.views.toolbarButtons.create(all, all, ToolbarButtonLocation.EditorToolbar);
   },
 });
+
+const allReviews = async () => {
+  _.each(reviewTypes, (_v, k) => {
+    baseReview(k)
+  })
+}
+const debouncedAllReviews = _.debounce(allReviews, 5000)
 
 const registerReview = (type) => {
   const name = _.camelCase(type)
