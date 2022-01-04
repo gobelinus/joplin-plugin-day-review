@@ -9,6 +9,9 @@ ebuild:
 start: build
 	@/Applications/Joplin.app/Contents/MacOS/Joplin --env dev
 
+watch:
+	watchexec -i publish -i dist -r -e ts -- make start
+
 tag:
 	@./bin/tag-release
 
