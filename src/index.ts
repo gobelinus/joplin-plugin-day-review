@@ -54,50 +54,54 @@ joplin.plugins.register({
         }
         const notes = await joplin.data.get(['notes'], options);
         console.info("Notes: ", notes)
-        // TODO: convert to object
+
         const items = notes.items.reduce((acc, i) => { acc[getId(i)] = i; return acc }, {})
         console.info("items: ", items)
-        var createdNotes_ids = [];
-        var updatedNotes_ids = [];
-        var createdTodos_ids = [];
-        var completedTodos_ids = [];
+
+        const CREATED_NOTES = 'CREATED_NOTES'
+        const UPDATED_NOTES = 'UPDATED_NOTES'
+        const CREATED_TODOS = 'CREATED_TODOS'
+        const COMPLETED_TODOS = 'COMPLETED_TODOS'
+        var categorizedNotes = {}
+        categorizedNotes[CREATED_NOTES] = []
+        categorizedNotes[UPDATED_NOTES] = []
+        categorizedNotes[CREATED_TODOS] = []
+        categorizedNotes[COMPLETED_TODOS] = []
+
         var date1 = new Date();
         date1.setHours(0, 0, 0);
-        //const title = date.toString() + " Review";
-        var body = "(Generated automatically)\n\n";
+        var date = date1.getTime();
 
         console.log("notes ", notes, date1, date1.getTime());
-        var date = date1.getTime();
 
         _.each(items, (item, id) => {
           console.info("forEach: item: ", item, id)
           if (item.created_time >= date) {
             if (item.is_todo) {
-              createdTodos_ids.push(item.id);
+              categorizedNotes[CREATED_TODOS].push(item.id)
             } else {
-              createdNotes_ids.push(item.id);
+              categorizedNotes[CREATED_NOTES].push(item.id)
             }
           } else if (item.updated_time >= date && !item.is_todo) {
             // "else if" so we don't put the created notes also in the "updated" section
-            updatedNotes_ids.push(getId(item));
+            categorizedNotes[UPDATED_NOTES].push(getId(item))
           }
           if (item.is_todo && item.todo_completed >= date) {
-            completedTodos_ids.push(getId(item));
+            categorizedNotes[COMPLETED_TODOS].push(getId(item))
           }
         });
 
+        var body = "(Generated automatically)\n\n";
         // TODO : make links using lodash template
-        body += createLinksSection("Created Notes", createdNotes_ids, items)
-        body += createLinksSection("Updated Notes", updatedNotes_ids, items)
-        console.info("createdTodos_ids", createdTodos_ids)
-        body += createLinksSection("Created Todos", createdTodos_ids, items)
-        body += createLinksSection("Completed Todos", completedTodos_ids, items)
+        body += createLinksSection("Created Notes", categorizedNotes[CREATED_NOTES], items)
+        body += createLinksSection("Updated Notes", categorizedNotes[UPDATED_NOTES], items)
+        body += createLinksSection("Created Todos", categorizedNotes[CREATED_TODOS], items)
+        body += createLinksSection("Completed Todos", categorizedNotes[COMPLETED_TODOS], items)
 
         console.info(body);
         date1.setHours(12, 0, 0);
         const title = date1.toISOString().substring(0, 10) + " Review";
         await joplin.data.post(['notes'], null, { body: body, title: title });
-
       },
     });
 
