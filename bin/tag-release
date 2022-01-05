@@ -4,10 +4,25 @@ set -eou pipefail
 
 set -x
 
-$EDITOR src/manifest.json && \
-VERSION="$(jq --raw-output '.version' < src/manifest.json)"
+readonly WORKSPACE="$(mktemp -d)"
+trap 'rm -rf $WORKSPACE' EXIT
+
+VERSION="$(jq --raw-output '.version' <src/manifest.json)"
+
+echo "Current Version: $VERSION"
+read -r -p "Enter new version: " version
+
+readonly manifest="manifest.json"
+jq --raw-output --arg version "$version" '.version = $version' <"src/$manifest" >"$WORKSPACE/$manifest"
+cp "$WORKSPACE/$manifest" src/
+
+readonly pkg="package.json"
+# Since we can't do this in a single pipeline, use temp dir that's auto-cleaned
+jq --raw-output --arg version "$version" '.version = $version' <"$pkg" >"$WORKSPACE/$pkg"
+cp "$WORKSPACE/$pkg" .
 
 git add src/manifest.json
+git add package.json
 git commit -m "[AUTO-COMMIT] for tagged release"
 
 git tag -a "v${VERSION}" -m "Release ${VERSION}"

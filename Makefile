@@ -16,4 +16,10 @@ tag:
 	@./bin/tag-release
 
 clean:
-	@rm -rf ./publish && rm -rf ./dist
+	@rm -rf ./publish && rm -rf ./dist && rm -rf ./*.tgz
+
+release-dry-run: build
+	npm release --dry-run
+
+release: build tag
+	npm release
