@@ -254,7 +254,11 @@ const createLinkForItem = (item: any) => {
 
 // TODO: fix types
 const createLinksSection = (title: string, items: any): string[] => {
+  // don't add sections if there are not items
   let output = [];
+  if (!items) {
+    return output;
+  }
   output.push(`# ${title}\n`);
 
   _.each(items, (v, k) => {
