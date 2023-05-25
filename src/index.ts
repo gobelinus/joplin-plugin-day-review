@@ -35,7 +35,9 @@ const reviewTypes = {
     readableDateFn: () => format(new Date(), "yyyy-MM-dd"),
     dateFn: () => format(new Date(), "yyyyMMdd"),
     upperDateFn: () => format(addDays(new Date(), 1), "yyyyMMdd"),
+    icon: 'fa-clipboard-list',
   },
+  /*
   [PRIOR_DAILY_REVIEW]: {
     unit: "day-1",
     readableDateFn: () => format(subDays(new Date(), 1), "yyyy-MM-dd"),
@@ -56,30 +58,37 @@ const reviewTypes = {
     dateFn: () => format(subDays(new Date(), 14), "yyyyMMdd"),
     upperDateFn: () => format(subDays(new Date(), 7), "yyyyMMdd"),
   },
+  */
   [MONTHLY_REVIEW]: {
     unit: "month-0",
     readableDateFn: () => format(new Date(), "yyyy-MM"),
     dateFn: () => format(new Date(), "yyyyMM"),
     upperDateFn: () => format(addMonths(new Date(), 1), "yyyyMM"),
+    icon: 'fa-calendar-circle-plus',
   },
+  /*
   [PRIOR_MONTHLY_REVIEW]: {
     unit: "month-1",
     readableDateFn: () => format(subMonths(new Date(), 1), "yyyy-MM"),
     dateFn: () => format(subMonths(new Date(), 1), "yyyyMM"),
     upperDateFn: () => format(new Date(), "yyyyMM"),
   },
+  */
   [YEARLY_REVIEW]: {
     unit: "year-0",
     readableDateFn: () => format(new Date(), "yyyy"),
     dateFn: () => format(new Date(), "yyyy"),
     upperDateFn: () => format(addYears(new Date(), 1), "yyyy"),
+    icon: 'fa-calendars',
   },
+  /*
   [PRIOR_YEARLY_REVIEW]: {
     unit: "year-1",
     readableDateFn: () => format(subYears(new Date(), 1), "yyyy"),
     dateFn: () => format(subYears(new Date(), 1), "yyyy"),
     upperDateFn: () => format(new Date(), "yyyy"),
   },
+  */
 };
 
 const DEFAULT_FIELDS = [
@@ -267,7 +276,7 @@ const createLinksSection = (title: string, items: any): string[] => {
 joplin.plugins.register({
   onStart: async function () {
     _.each(reviewTypes, (_v, k) => {
-      registerReview(k);
+      registerReview(k, (_v.icon || 'fa-clipboard-list'));
     });
 
     const all = "allReviews";
@@ -297,14 +306,14 @@ const allReviews = async () => {
 };
 const debouncedAllReviews = _.debounce(allReviews, 5000);
 
-const registerReview = (type) => {
+const registerReview = (type, iconName) => {
   const name = _.camelCase(type);
   joplin.commands.register({
     name: name,
     label: `Creates a ${_.chain(type)
       .lowerCase()
       .startCase()} of the notes edited`,
-    iconName: "fas fa-clipboard-list",
+    iconName: `fas ${iconName}`,
     execute: async () => baseReview(type),
   });
 
